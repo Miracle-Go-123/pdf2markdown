@@ -688,7 +688,7 @@ Note: The information appears to be typed. There is no signature field or placeh
 
 def main():
     converter = PdfToMarkdownConverter()
-    pdf_path = "Mayra Amador N400 packet.pdf"
+    pdf_path = "I-90-Renewal-Sample-Package_complete.pdf"
     converter.convert_pdf(pdf_path)
 
 if __name__ == "__main__":
