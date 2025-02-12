@@ -627,10 +627,10 @@ Note: The information appears to be typed. There is no signature field or placeh
             stop=None,
             stream=False
         )
-        print(f"\nMarkdown output for page {page_num + 1}:")
-        print("-" * 80)
-        print(completion.choices[0].message.content)
-        print("-" * 80)
+        # print(f"\nMarkdown output for page {page_num + 1}:")
+        # print("-" * 80)
+        # print(completion.choices[0].message.content)
+        # print("-" * 80)
         
         return page_num, completion.choices[0].message.content
 
