@@ -3,7 +3,7 @@ import uuid
 from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from auth import APIKeyMiddleware
 from pydantic import BaseModel
-from typing import Optional, Union, Dict
+from typing import Optional, Dict
 
 from pdf_to_markdown import PdfToMarkdownConverter
 
