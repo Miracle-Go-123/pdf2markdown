@@ -42,10 +42,10 @@ class PdfToMarkdownConverter:
             file_size_mb = os.path.getsize(image_path) / (1024 * 1024)
             print(f"Page {i+1} size: {file_size_mb:.2f} MB")
             
-            if file_size_mb > 5:
-                print(f"Warning: Page {i+1} is still over 5MB, applying emergency compression")
+            if file_size_mb > MAX_IMAGE_SIZE_MB:
+                print(f"Warning: Page {i+1} is still over {MAX_IMAGE_SIZE_MB}MB, applying emergency compression")
                 with Image.open(image_path) as img:
-                    extra_compressed = self.compress_image(img, target_size_mb=4.5)  # Target slightly below 5MB
+                    extra_compressed = self.compress_image(img, target_size_mb=TARGET_IMAGE_SIZE_MB)  # Target slightly below MAX_IMAGE_SIZE_MB
                     extra_compressed.save(image_path, "PNG")
                     final_size_mb = os.path.getsize(image_path) / (1024 * 1024)
                     print(f"Final size after emergency compression: {final_size_mb:.2f} MB")
@@ -54,8 +54,8 @@ class PdfToMarkdownConverter:
         
         return image_paths
 
-    def compress_image(self, image, target_size_mb=5):
-        """Compress image to target size of 5MB with verification"""
+    def compress_image(self, image, target_size_mb=MAX_IMAGE_SIZE_MB):
+        """Compress image to target size of MAX_IMAGE_SIZE_MB with verification"""
         def get_size_mb(img):
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='PNG')
@@ -659,8 +659,8 @@ Note: The information appears to be typed. There is no signature field or placeh
             # Create list of tuples with (image_path, page_number)
             image_tasks = [(path, idx) for idx, path in enumerate(image_paths)]
             
-            # Process images in parallel with max 10 threads
-            with ThreadPoolExecutor(max_workers=50) as executor:
+            # Process images in parallel with max {MAX_THREADS} threads
+            with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
                 # Submit all tasks and create future-to-index mapping
                 future_to_page = {
                     executor.submit(self.image_to_markdown, task): task[1]
