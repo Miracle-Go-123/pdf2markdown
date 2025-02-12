@@ -1,4 +1,7 @@
 PyPDF2
 pdf2image
 openai
-pillow 
+pillow
+fastapi
+uvicorn
+python-multipart

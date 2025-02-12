@@ -1,8 +1,9 @@
+from fastapi import UploadFile
 import os
 from pathlib import Path
 import base64
 from openai import AzureOpenAI
-from pdf2image import convert_from_path
+from pdf2image import convert_from_bytes
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from config import *
 from datetime import datetime
@@ -11,26 +12,27 @@ import math
 from PIL import Image
 
 class PdfToMarkdownConverter:
-    def __init__(self):
+    def __init__(self, job_id: str):
         # Initialize Azure OpenAI with key-based authentication
         self.client = AzureOpenAI(
             azure_endpoint=AZURE_OPENAI_ENDPOINT,
             api_key=AZURE_OPENAI_KEY,
             api_version=AZURE_OPENAI_API_VERSION,
         )
+
+        self.temp_dir = f"{TEMP_DIR}/{job_id}"
         
         # Create necessary directories
-        Path(TEMP_DIR).mkdir(exist_ok=True)
-        Path(OUTPUT_DIR).mkdir(exist_ok=True)
+        Path(self.temp_dir).mkdir(parents=True, exist_ok=True)
         self.current_date = datetime.now().strftime("%m/%d/%Y")
 
-    def split_pdf_to_images(self, pdf_path):
+    def split_pdf_to_images(self, pdf_content: bytes):
         """Convert PDF pages to PNG images"""
-        images = convert_from_path(pdf_path)
+        images = convert_from_bytes(pdf_content, grayscale=True)
         image_paths = []
         
         for i, image in enumerate(images):
-            image_path = f"{TEMP_DIR}/page_{i+1}.png"
+            image_path = f"{self.temp_dir}/page_{i+1}.png"
             
             # Compress image before saving
             compressed_image = self.compress_image(image)
@@ -633,23 +635,22 @@ Note: The information appears to be typed. There is no signature field or placeh
         return page_num, completion.choices[0].message.content
 
     def combine_markdown_files(self, markdown_contents):
-        """Combine all markdown content into a single file"""
-        output_path = f"{OUTPUT_DIR}/combined_output.md"
+        """Combine all markdown content into a single string"""
+        combined_content = ""
         
-        with open(output_path, "w", encoding="utf-8") as f:
-            for i, content in enumerate(markdown_contents):
-                f.write(f"## Page {i+1}\n\n")
-                f.write(content)
-                f.write("\n\n---\n\n")
+        for i, content in enumerate(markdown_contents):
+            combined_content += f"## Page {i+1}\n\n"
+            combined_content += content
+            combined_content += "\n\n---\n\n"
         
-        return output_path
+        return combined_content
 
-    def convert_pdf(self, pdf_path):
+    def convert_pdf(self, pdf_content: bytes):
         """Main conversion process"""
         try:
             # Split PDF into images
             print("Converting PDF pages to images...")
-            image_paths = self.split_pdf_to_images(pdf_path)
+            image_paths = self.split_pdf_to_images(pdf_content)
             
             # Convert each image to markdown using thread pool
             print("Converting images to markdown using parallel processing...")
@@ -673,23 +674,16 @@ Note: The information appears to be typed. There is no signature field or placeh
             
             # Combine all markdown content
             print("Combining markdown content...")
-            final_path = self.combine_markdown_files(markdown_contents)
+            final_content = self.combine_markdown_files(markdown_contents)
             
-            # Cleanup temporary files
+            # Cleanup temporary files and directories
             for image_path in image_paths:
                 os.remove(image_path)
+            os.removedirs(self.temp_dir)
                 
-            print(f"Conversion complete! Output file: {final_path}")
-            return final_path
+            print(f"Conversion complete!")
+            return final_content
             
         except Exception as e:
             print(f"An error occurred: {str(e)}")
             raise
-
-def main():
-    converter = PdfToMarkdownConverter()
-    pdf_path = "I-90-Renewal-Sample-Package_complete.pdf"
-    converter.convert_pdf(pdf_path)
-
-if __name__ == "__main__":
-    main() 
