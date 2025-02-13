@@ -43,9 +43,9 @@ class PdfToMarkdownConverter:
             print(f"Page {i+1} size: {file_size_mb:.2f} MB")
             
             if file_size_mb > MAX_IMAGE_SIZE_MB:
-                print(f"Warning: Page {i+1} is still over {MAX_IMAGE_SIZE_MB}MB, applying emergency compression")
+                print(f"Warning: Page {i+1} is still over {MAX_IMAGE_SIZE_MB}, applying emergency compression")
                 with Image.open(image_path) as img:
-                    extra_compressed = self.compress_image(img, target_size_mb=TARGET_IMAGE_SIZE_MB)  # Target slightly below MAX_IMAGE_SIZE_MB
+                    extra_compressed = self.compress_image(img, target_size_mb=TARGET_IMAGE_SIZE_MB)  # Target slightly below {TARGET_IMAGE_SIZE_MB}
                     extra_compressed.save(image_path, "PNG")
                     final_size_mb = os.path.getsize(image_path) / (1024 * 1024)
                     print(f"Final size after emergency compression: {final_size_mb:.2f} MB")
@@ -55,7 +55,7 @@ class PdfToMarkdownConverter:
         return image_paths
 
     def compress_image(self, image, target_size_mb=MAX_IMAGE_SIZE_MB):
-        """Compress image to target size of MAX_IMAGE_SIZE_MB with verification"""
+        """Compress image to target size of {MAX_IMAGE_SIZE_MB} with verification"""
         def get_size_mb(img):
             img_byte_arr = io.BytesIO()
             img.save(img_byte_arr, format='PNG')
@@ -686,4 +686,10 @@ Note: The information appears to be typed. There is no signature field or placeh
             
         except Exception as e:
             print(f"An error occurred: {str(e)}")
+            # Cleanup on error
+            for image_path in image_paths:
+                if os.path.exists(image_path):
+                    os.remove(image_path)
+            if os.path.exists(self.temp_dir):
+                os.removedirs(self.temp_dir)
             raise

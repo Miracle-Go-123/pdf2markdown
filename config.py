@@ -16,9 +16,6 @@ NEXT_API_KEY = os.getenv('NEXT_API_KEY')
 # Temporary directory for storing PNG files
 TEMP_DIR = "temp"
 
-# Output directory for markdown files
-OUTPUT_DIR = "output"
-
 # Image processing settings
 MAX_IMAGE_SIZE_MB = 5
 TARGET_IMAGE_SIZE_MB = 4.5  # Slightly below max for safety margin
