@@ -4,8 +4,9 @@ from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from auth import APIKeyMiddleware
 from pydantic import BaseModel
 from typing import Optional, Dict
+from concurrent.futures import ThreadPoolExecutor
 
-from pdf_to_markdown import PdfToMarkdownConverter
+from pdf_to_markdown import ConverterByGPT, ConverterByDocumentIntelligence
 
 
 class Status(StrEnum):
@@ -15,7 +16,8 @@ class Status(StrEnum):
 
 class ResponseData(BaseModel):
     status: Status
-    output: Optional[str] = None
+    output_gpt: Optional[str] = None
+    output_document: Optional[str] = None
     error: Optional[str] = None
 
 store: Dict[str, ResponseData] = {}
@@ -25,9 +27,17 @@ app.add_middleware(APIKeyMiddleware)
 
 def run_kickoff(pdf_content: bytes, job_id: str):
     try:
-        converter = PdfToMarkdownConverter(job_id)
-        output = converter.convert_pdf(pdf_content=pdf_content)
-        store[job_id] = ResponseData(status=Status.FINISHED, output=output)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            # Submit both converter tasks to the executor
+            future_gpt = executor.submit(ConverterByGPT(job_id).convert_pdf, pdf_content=pdf_content)
+            future_document = executor.submit(ConverterByDocumentIntelligence().convert_pdf, pdf_content=pdf_content)
+
+            # Wait for both futures to complete and get their results
+            output_gpt = future_gpt.result()
+            output_document = future_document.result()
+
+        # Store the results in the shared store
+        store[job_id] = ResponseData(status=Status.FINISHED, output_gpt=output_gpt, output_document=output_document)
     except Exception as e:
         store[job_id] = ResponseData(status=Status.FAILED, error=str(e))
 
@@ -43,6 +53,7 @@ async def convert_pdf_to_markdown(background_tasks: BackgroundTasks, file: Uploa
 
         background_tasks.add_task(run_kickoff, pdf_content, job_id)
         store[job_id] = ResponseData(status=Status.RUNNING)
+        
         return {"job_id": job_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -6,3 +6,5 @@ fastapi
 uvicorn
 python-multipart
 python-dotenv
+azure-ai-documentintelligence
+azure-core 

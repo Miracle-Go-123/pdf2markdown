@@ -9,15 +9,18 @@ from config import *
 from datetime import datetime
 import io
 import math
-from PIL import Image
+from PIL import Image, ImageEnhance
+from azure.core.credentials import AzureKeyCredential
+from azure.ai.documentintelligence import DocumentIntelligenceClient
+from azure.ai.documentintelligence.models import DocumentContentFormat
 
-class PdfToMarkdownConverter:
+class ConverterByGPT:
     def __init__(self, job_id: str):
         # Initialize Azure OpenAI with key-based authentication
         self.client = AzureOpenAI(
-            azure_endpoint=AZURE_OPENAI_ENDPOINT,
-            api_key=AZURE_OPENAI_KEY,
-            api_version=AZURE_OPENAI_API_VERSION,
+            azure_endpoint=OCR_AZURE_OPENAI_ENDPOINT,
+            api_key=OCR_AZURE_OPENAI_KEY,
+            api_version=OCR_AZURE_OPENAI_API_VERSION,
         )
 
         self.temp_dir = f"{TEMP_DIR}/{job_id}"
@@ -34,8 +37,16 @@ class PdfToMarkdownConverter:
         for i, image in enumerate(images):
             image_path = f"{self.temp_dir}/page_{i+1}.png"
             
+            # Convert to grayscale and enhance contrast
+            if image.mode != 'L':
+                image = image.convert('L')
+            
+            # Enhance contrast
+            enhancer = ImageEnhance.Contrast(image)
+            enhanced_image = enhancer.enhance(2.0)  # Increase contrast by a factor of 2.0
+            
             # Compress image before saving
-            compressed_image = self.compress_image(image)
+            compressed_image = self.compress_image(enhanced_image)
             compressed_image.save(image_path, "PNG")
             
             # Verify file size
@@ -107,24 +118,36 @@ class PdfToMarkdownConverter:
         image_path, page_num = image_info
         print(f"Processing page {page_num + 1}...")
         
-        # Compress image if needed
-        with Image.open(image_path) as image:
-            compressed_image = self.compress_image(image)
-            
-            # Save compressed image back to the same path
-            img_byte_arr = io.BytesIO()
-            compressed_image.save(img_byte_arr, format='PNG')
-            img_byte_arr = img_byte_arr.getvalue()
-            
-            # Convert to base64 for API
-            encoded_image = base64.b64encode(img_byte_arr).decode('ascii')
+        # Enhanced system prompt focusing on accuracy
+        system_prompt = f"""
+The current date is: {self.current_date}. 
+You are an expert document and form extractor at a law firm. 
+Your job is to meticulously extract all the information from this image.
 
-        system_prompt = f"""The current date is: {self.current_date}. You are an expert document and form extractor at a law firm. Your job is meticulously extract all the information from this image
-You extract the information filled in the document and also the instructions on the forms so a downstream process can understand the output.
-For every fieled you extract, note if this is filled out in handwritten form or typed. As we are a bit more suspect of handwritten info.
-DO NOT MARK CHECKBOXES THAT ARE NOT MARKED - if they are empty make sure they are empty in the markdown.
+For every field you extract:
+1. Note if this is filled out in handwritten form or typed
+2. For checkboxes:
+   - Mark [X] ONLY when you are certain the box is checked (contains clear marks, X, or checkmark)
+   - Mark [ ] when the box is clearly empty
+   - If you're unsure about a checkbox status, note "(Status unclear)"
 
-Here is a sample of a few types of outputs that are possible - please follow this sample in your work:
+3. For text and numbers:
+   - Extract exactly as they appear, preserving original formatting
+   - If text is unclear, mark as "(Unclear: possible text)"
+   - For empty fields, mark as "[Field is blank]"
+   - For unreadable fields, mark as "(Unreadable)"
+
+4. Form Structure:
+   - Maintain exact form section headers and numbering
+   - Include all field labels exactly as they appear
+   - Preserve the hierarchy of sections
+
+DO NOT:
+- Guess or infer information that isn't clearly visible
+- Mark checkboxes as checked unless you're absolutely certain
+- Modify or "correct" any information - extract exactly as shown
+
+Follow the sample output format provided below.
 
 **Document Name:** Cover Letter
 
@@ -592,47 +615,57 @@ Note: The information appears to be typed. There is no signature field or placeh
 
 """
 
-        chat_prompt = [
-            {
-                "role": "system",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": system_prompt
-                    }
-                ]
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "\n"},
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:image/jpeg;base64,{encoded_image}"
-                        }
-                    },
-                    {"type": "text", "text": "Please extract all information from this page following the system instructions."}
-                ]
-            }
-        ]
+        try:
+            # Convert image directly to bytes for API
+            with Image.open(image_path) as image:
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format='PNG')
+                img_byte_arr = img_byte_arr.getvalue()
+                
+                # Convert to base64
+                encoded_image = base64.b64encode(img_byte_arr).decode('ascii')
 
-        completion = self.client.chat.completions.create(
-            model=AZURE_DEPLOYMENT_NAME,
-            messages=chat_prompt,
-            temperature=0.0,
-            top_p=0.90,
-            frequency_penalty=0,
-            presence_penalty=0,
-            stop=None,
-            stream=False
-        )
-        # print(f"\nMarkdown output for page {page_num + 1}:")
-        # print("-" * 80)
-        # print(completion.choices[0].message.content)
-        # print("-" * 80)
-        
-        return page_num, completion.choices[0].message.content
+            # Prepare chat prompt
+            chat_prompt = [
+                {
+                    "role": "system",
+                    "content": [{"type": "text", "text": system_prompt}]
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "\n"},
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{encoded_image}"
+                            }
+                        },
+                        {
+                            "type": "text", 
+                            "text": "Please extract all information from this image, being especially careful with checkboxes and form fields. If you're unsure about any information, indicate that clearly."
+                        }
+                    ]
+                }
+            ]
+
+            # Get completion with optimized parameters
+            completion = self.client.chat.completions.create(
+                model=OCR_AZURE_DEPLOYMENT_NAME,
+                messages=chat_prompt,
+                temperature=0.0,  # Maximum consistency
+                top_p=0.90,      # Slightly increased for better accuracy
+                frequency_penalty=0,
+                presence_penalty=0,
+                stop=None,
+                stream=False
+            )
+
+            return page_num, completion.choices[0].message.content
+
+        except Exception as e:
+            print(f"Error processing page {page_num + 1}: {str(e)}")
+            return page_num, f"Error processing page: {str(e)}"
 
     def combine_markdown_files(self, markdown_contents):
         """Combine all markdown content into a single string"""
@@ -659,7 +692,7 @@ Note: The information appears to be typed. There is no signature field or placeh
             # Create list of tuples with (image_path, page_number)
             image_tasks = [(path, idx) for idx, path in enumerate(image_paths)]
             
-            # Process images in parallel with max {MAX_THREADS} threads
+            # Process images in parallel with max threads
             with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
                 # Submit all tasks and create future-to-index mapping
                 future_to_page = {
@@ -675,6 +708,11 @@ Note: The information appears to be typed. There is no signature field or placeh
             # Combine all markdown content
             print("Combining markdown content...")
             final_content = self.combine_markdown_files(markdown_contents)
+
+            # Save markdown content to file
+            output_path = f"markdown_gpt.md"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(final_content)
             
             # Cleanup temporary files and directories
             for image_path in image_paths:
@@ -692,4 +730,87 @@ Note: The information appears to be typed. There is no signature field or placeh
                     os.remove(image_path)
             if os.path.exists(self.temp_dir):
                 os.removedirs(self.temp_dir)
+            raise
+
+class ConverterByDocumentIntelligence:
+    def format_with_openai(self, markdown_content):
+        client = AzureOpenAI(
+            api_key=DI_AZURE_OPENAI_KEY,
+            api_version=DI_AZURE_OPENAI_API_VERSION,
+            azure_endpoint=DI_AZURE_OPENAI_ENDPOINT
+        )
+
+        prompt = """Please reformat this form content into clear, well-structured markdown. 
+        Requirements:
+        1. Preserve all form fields, instructions, and text
+        2. Show all checkboxes ([X] for selected, [ ] for unselected)
+        3. Maintain proper spacing and hierarchy
+        4. Keep section numbering and titles
+        5. Format instructions in italics
+        6. Group related fields together
+        7. Make it highly readable
+        8. INCLUDE EVERYTHING FROM THE ORIGINAL MARKDOWN - all check boxes and info should be included, even fields that were not filled out should be present.
+        9. include the page numbers on every top page.
+
+        Original form content:
+        """
+
+        try:
+            response = client.chat.completions.create(
+                model=DI_AZURE_DEPLOYMENT_NAME,  # o3-mini deployment
+                messages=[
+                    {
+                        "role": "user",
+                        "content": prompt + markdown_content
+                    }
+                ],
+                frequency_penalty=0,
+                presence_penalty=0,
+                stop=None
+            )
+            
+            return response.choices[0].message.content
+        except Exception as e:
+            print(f"Error calling Azure OpenAI: {str(e)}")
+            return markdown_content  # Return original content if formatting fails
+
+    def convert_pdf(self, pdf_content: bytes):
+        try:
+            # Initialize the client
+            document_client = DocumentIntelligenceClient(
+                endpoint=AZURE_DOCUMENT_ENDPOINT,
+                credential=AzureKeyCredential(AZURE_DOCUMENT_KEY)
+            )
+
+            print("Begin analyzing document using Document Intelligence...")
+
+            # Process the PDF
+            poller = document_client.begin_analyze_document(
+                "prebuilt-layout",
+                body=pdf_content,
+                content_type="application/pdf",
+                output_content_format=DocumentContentFormat.MARKDOWN
+            )
+
+            print("End analyzing document using Document Intelligence...")
+            
+            result = poller.result()
+                    
+            print("Formatting markdown started with OpenAI...")
+            # Format the markdown with OpenAI
+            formatted_markdown = self.format_with_openai(result.content)
+            
+            print("Formatting markdown completed with OpenAI...")
+
+            # Save both original and formatted markdown
+            with open(f"markdown_di_raw.md", "w", encoding="utf-8") as f:
+                f.write(result.content)
+                
+            with open(f"markdown_di_formatted.md", "w", encoding="utf-8") as f:
+                f.write(formatted_markdown)
+
+            print(f"Document Intelligence parsing complete!")
+            return formatted_markdown
+        except Exception as e:
+            print(f"An error occurred while parsing the document with Document Intelligence: {str(e)}")
             raise
