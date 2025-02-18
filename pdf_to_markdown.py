@@ -709,10 +709,10 @@ Note: The information appears to be typed. There is no signature field or placeh
             print("Combining markdown content...")
             final_content = self.combine_markdown_files(markdown_contents)
 
-            # Save markdown content to file
-            output_path = f"markdown_gpt.md"
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write(final_content)
+            if SAVE_TO_MARKDOWN:
+                # Save markdown content to file
+                with open("markdown_gpt.md", 'w', encoding='utf-8') as f:
+                    f.write(final_content)
             
             # Cleanup temporary files and directories
             for image_path in image_paths:
@@ -795,19 +795,24 @@ class ConverterByDocumentIntelligence:
             print("End analyzing document using Document Intelligence...")
             
             result = poller.result()
-                    
-            print("Formatting markdown started with OpenAI...")
-            # Format the markdown with OpenAI
-            formatted_markdown = self.format_with_openai(result.content)
             
-            print("Formatting markdown completed with OpenAI...")
-
-            # Save both original and formatted markdown
-            with open(f"markdown_di_raw.md", "w", encoding="utf-8") as f:
-                f.write(result.content)
+            if FORMAT_MARKDOWN_FROM_DI:
+                print("Formatting markdown started with OpenAI...")
+                # Format the markdown with OpenAI
+                formatted_markdown = self.format_with_openai(result.content)           
                 
-            with open(f"markdown_di_formatted.md", "w", encoding="utf-8") as f:
-                f.write(formatted_markdown)
+                print("Formatting markdown completed with OpenAI...")
+            else:
+                formatted_markdown = result.content
+
+            if SAVE_TO_MARKDOWN:
+                # Save both original and formatted markdown
+                with open(f"markdown_di_raw.md", "w", encoding="utf-8") as f:
+                    f.write(result.content)
+                
+                if FORMAT_MARKDOWN_FROM_DI:
+                    with open(f"markdown_di_formatted.md", "w", encoding="utf-8") as f:
+                        f.write(formatted_markdown)
 
             print(f"Document Intelligence parsing complete!")
             return formatted_markdown

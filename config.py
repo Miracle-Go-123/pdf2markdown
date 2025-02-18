@@ -30,3 +30,9 @@ TARGET_IMAGE_SIZE_MB = 4.5  # Slightly below max for safety margin
 
 # Threading settings
 MAX_THREADS = 50  # Maximum number of concurrent API calls
+
+# Save to markdown file
+SAVE_TO_MARKDOWN = os.getenv('SAVE_TO_MARKDOWN', 'False').lower() in ('true', '1')
+
+# Format raw markdown from Document Intelligence
+FORMAT_MARKDOWN_FROM_DI = os.getenv('FORMAT_MARKDOWN_FROM_DI', 'False').lower() in ('true', '1')
