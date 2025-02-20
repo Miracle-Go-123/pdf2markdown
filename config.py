@@ -40,3 +40,7 @@ FORMAT_MARKDOWN_FROM_DI = os.getenv('FORMAT_MARKDOWN_FROM_DI', 'False').lower() 
 # Retry settings for handling rate limit errors
 RATE_LIMIT_RETRY_MAX_COUNT = 3
 RATE_LIMIT_RETRY_DELAY = 1
+
+# Chunk size for Document Intelligence
+CHUNK_SIZE = 15
+

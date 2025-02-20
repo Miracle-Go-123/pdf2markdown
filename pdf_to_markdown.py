@@ -1,4 +1,3 @@
-from fastapi import UploadFile
 import os
 from pathlib import Path
 import base64
@@ -12,6 +11,7 @@ import math
 import time
 import psutil
 from PIL import Image, ImageEnhance
+from PyPDF2 import PdfReader, PdfWriter
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import DocumentContentFormat
@@ -819,32 +819,52 @@ class ConverterByDocumentIntelligence:
 
             print("Begin analyzing document using Document Intelligence...")
 
-            # Process the PDF
-            poller = document_client.begin_analyze_document(
-                "prebuilt-layout",
-                body=pdf_content,
-                content_type="application/pdf",
-                output_content_format=DocumentContentFormat.MARKDOWN
-            )
+            # Split the PDF into chunks of 15 pages
+            pdf_reader = PdfReader(io.BytesIO(pdf_content))
+            total_pages = len(pdf_reader.pages)
+            markdown_contents = []
 
-            print("End analyzing document using Document Intelligence...")
-            
-            result = poller.result()
-            
+            for start_page in range(0, total_pages, CHUNK_SIZE):
+                end_page = min(start_page + CHUNK_SIZE, total_pages)
+                print(f"Processing pages {start_page + 1} to {end_page}...")
+
+                # Extract pages for the current chunk
+                pdf_writer = PdfWriter()
+                for page_num in range(start_page, end_page):
+                    pdf_writer.add_page(pdf_reader.pages[page_num])
+
+                # Convert the chunk to bytes
+                chunk_bytes = io.BytesIO()
+                pdf_writer.write(chunk_bytes)
+                chunk_bytes.seek(0)
+
+                # Process the chunk
+                poller = document_client.begin_analyze_document(
+                    "prebuilt-layout",
+                    body=chunk_bytes.getvalue(),
+                    content_type="application/pdf",
+                    output_content_format=DocumentContentFormat.MARKDOWN
+                )
+
+                result = poller.result()
+                markdown_contents.append(result.content)
+
+            # Combine all markdown content
+            combined_markdown = "\n\n---\n\n".join(markdown_contents)
+
             if FORMAT_MARKDOWN_FROM_DI:
                 print("Formatting markdown started with OpenAI...")
                 # Format the markdown with OpenAI
-                formatted_markdown = self.format_with_openai(result.content)           
-                
+                formatted_markdown = self.format_with_openai(combined_markdown)
                 print("Formatting markdown completed with OpenAI...")
             else:
-                formatted_markdown = result.content
+                formatted_markdown = combined_markdown
 
             if SAVE_TO_MARKDOWN:
                 # Save both original and formatted markdown
                 with open(f"markdown_di_raw.md", "w", encoding="utf-8") as f:
-                    f.write(result.content)
-                
+                    f.write(combined_markdown)
+
                 if FORMAT_MARKDOWN_FROM_DI:
                     with open(f"markdown_di_formatted.md", "w", encoding="utf-8") as f:
                         f.write(formatted_markdown)
