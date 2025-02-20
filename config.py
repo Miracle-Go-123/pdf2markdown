@@ -36,3 +36,7 @@ SAVE_TO_MARKDOWN = os.getenv('SAVE_TO_MARKDOWN', 'False').lower() in ('true', '1
 
 # Format raw markdown from Document Intelligence
 FORMAT_MARKDOWN_FROM_DI = os.getenv('FORMAT_MARKDOWN_FROM_DI', 'False').lower() in ('true', '1')
+
+# Retry settings for handling rate limit errors
+RATE_LIMIT_RETRY_MAX_COUNT = 3
+RATE_LIMIT_RETRY_DELAY = 1

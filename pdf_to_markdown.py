@@ -9,6 +9,8 @@ from config import *
 from datetime import datetime
 import io
 import math
+import time
+import psutil
 from PIL import Image, ImageEnhance
 from azure.core.credentials import AzureKeyCredential
 from azure.ai.documentintelligence import DocumentIntelligenceClient
@@ -112,6 +114,20 @@ class ConverterByGPT:
         final_size = get_size_mb(compressed_image)
         print(f"Emergency compression result size: {final_size:.2f} MB")
         return compressed_image
+    
+    def retry_with_backoff(self, func, max_retries = RATE_LIMIT_RETRY_MAX_COUNT, base_delay = RATE_LIMIT_RETRY_DELAY):
+        """Retries a function with exponential backoff in case of 429 errors."""
+        for attempt in range(max_retries):
+            try:
+                return func()
+            except Exception as e:
+                if "429" in str(e):
+                    wait_time = base_delay * (2 ** attempt)
+                    print(f">>>> Rate limit hit. Retrying in {wait_time:.2f} seconds...")
+                    time.sleep(wait_time)
+                else:
+                    raise e
+        raise Exception(">>>> Max retries exceeded due to rate limiting.")
 
     def image_to_markdown(self, image_info):
         """Convert image to markdown using Azure OpenAI"""
@@ -650,7 +666,7 @@ Note: The information appears to be typed. There is no signature field or placeh
             ]
 
             # Get completion with optimized parameters
-            completion = self.client.chat.completions.create(
+            completion = self.retry_with_backoff(lambda: self.client.chat.completions.create(
                 model=OCR_AZURE_DEPLOYMENT_NAME,
                 messages=chat_prompt,
                 temperature=0.0,  # Maximum consistency
@@ -659,7 +675,7 @@ Note: The information appears to be typed. There is no signature field or placeh
                 presence_penalty=0,
                 stop=None,
                 stream=False
-            )
+            ))
 
             return page_num, completion.choices[0].message.content
 
@@ -677,6 +693,22 @@ Note: The information appears to be typed. There is no signature field or placeh
             combined_content += "\n\n---\n\n"
         
         return combined_content
+    
+    def get_available_threads(self):
+        """Calculate available threads based on CPU and memory usage."""
+        total_cores = os.cpu_count() or 1  # Get total CPU cores, default to 1 if None
+        free_memory = psutil.virtual_memory().available / (1024 ** 3)  # Convert to GB
+        current_cpu_usage = psutil.cpu_percent(interval=1)  # Measure CPU usage over 1 sec
+
+        # Adjust max threads based on CPU and memory
+        if current_cpu_usage > 80:  # If CPU is heavily loaded, reduce threads
+            max_threads = max(2, total_cores // 2)
+        elif free_memory < 1:  # If available memory is low, reduce threads
+            max_threads = max(2, total_cores // 2)
+        else:
+            max_threads = total_cores * 2  # Default: Allow 2x CPU cores for I/O tasks
+
+        return max_threads
 
     def convert_pdf(self, pdf_content: bytes):
         """Main conversion process"""
@@ -693,7 +725,10 @@ Note: The information appears to be typed. There is no signature field or placeh
             image_tasks = [(path, idx) for idx, path in enumerate(image_paths)]
             
             # Process images in parallel with max threads
-            with ThreadPoolExecutor(max_workers=MAX_THREADS) as executor:
+            max_threads = min(self.get_available_threads(), len(image_tasks), MAX_THREADS)
+            print(f">>>> Using {max_threads} threads.")
+
+            with ThreadPoolExecutor(max_workers=max_threads) as executor:
                 # Submit all tasks and create future-to-index mapping
                 future_to_page = {
                     executor.submit(self.image_to_markdown, task): task[1]
