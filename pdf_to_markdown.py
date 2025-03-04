@@ -681,7 +681,8 @@ Note: The information appears to be typed. There is no signature field or placeh
 
         except Exception as e:
             print(f"Error processing page {page_num + 1}: {str(e)}")
-            return page_num, f"Error processing page: {str(e)}"
+            # return page_num, f"Error processing page: {str(e)}"
+            return page_num, f"Can't process this page for some reason. It might be due to the violation of the terms of Azure OpenAI service."
 
     def combine_markdown_files(self, markdown_contents):
         """Combine all markdown content into a single string"""
@@ -819,35 +820,43 @@ class ConverterByDocumentIntelligence:
 
             print("Begin analyzing document using Document Intelligence...")
 
-            # Split the PDF into chunks of 15 pages
             pdf_reader = PdfReader(io.BytesIO(pdf_content))
             total_pages = len(pdf_reader.pages)
+            
+            pdf_writer = PdfWriter()            
             markdown_contents = []
 
-            for start_page in range(0, total_pages, CHUNK_SIZE):
-                end_page = min(start_page + CHUNK_SIZE, total_pages)
-                print(f"Processing pages {start_page + 1} to {end_page}...")
+            max_chunk_size_bytes = 8 * 1024 * 1024 # 8 MB
+            current_chunk_size = 0            
 
-                # Extract pages for the current chunk
-                pdf_writer = PdfWriter()
-                for page_num in range(start_page, end_page):
-                    pdf_writer.add_page(pdf_reader.pages[page_num])
+            for page_num in range(total_pages):
+                # Add page to the current chunk
+                pdf_writer.add_page(pdf_reader.pages[page_num])
 
-                # Convert the chunk to bytes
+                # Convert current chunk to bytes to check size
                 chunk_bytes = io.BytesIO()
                 pdf_writer.write(chunk_bytes)
-                chunk_bytes.seek(0)
+                current_chunk_size = len(chunk_bytes.getvalue())  # size in bytes
 
-                # Process the chunk
-                poller = document_client.begin_analyze_document(
-                    "prebuilt-layout",
-                    body=chunk_bytes.getvalue(),
-                    content_type="application/pdf",
-                    output_content_format=DocumentContentFormat.MARKDOWN
-                )
+                # If the current chunk exceeds the size limit, process it
+                if current_chunk_size >= max_chunk_size_bytes or page_num == total_pages - 1:
+                    print(f"Processing pages up to {page_num + 1}...")
 
-                result = poller.result()
-                markdown_contents.append(result.content)
+                    # Process the chunk
+                    chunk_bytes.seek(0)
+                    poller = document_client.begin_analyze_document(
+                        "prebuilt-layout",
+                        body=chunk_bytes.getvalue(),
+                        content_type="application/pdf",
+                        output_content_format=DocumentContentFormat.MARKDOWN
+                    )
+
+                    result = poller.result()
+                    markdown_contents.append(result.content)
+
+                    # Reset for the next chunk
+                    pdf_writer = PdfWriter()
+                    current_chunk_size = 0
 
             # Combine all markdown content
             combined_markdown = "\n\n---\n\n".join(markdown_contents)
