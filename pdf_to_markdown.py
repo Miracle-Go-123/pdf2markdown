@@ -826,7 +826,7 @@ class ConverterByDocumentIntelligence:
             pdf_writer = PdfWriter()            
             markdown_contents = []
 
-            max_chunk_size_bytes = 8 * 1024 * 1024 # 8 MB
+            max_chunk_size_bytes = CHUNK_SIZE * 1024 * 1024    # bytes
             current_chunk_size = 0            
 
             for page_num in range(total_pages):
@@ -842,17 +842,33 @@ class ConverterByDocumentIntelligence:
                 if current_chunk_size >= max_chunk_size_bytes or page_num == total_pages - 1:
                     print(f"Processing pages up to {page_num + 1}...")
 
-                    # Process the chunk
-                    chunk_bytes.seek(0)
-                    poller = document_client.begin_analyze_document(
-                        "prebuilt-layout",
-                        body=chunk_bytes.getvalue(),
-                        content_type="application/pdf",
-                        output_content_format=DocumentContentFormat.MARKDOWN
-                    )
+                    # Process the chunk with retry mechanism
+                    max_retries = RATE_LIMIT_RETRY_MAX_COUNT
+                    base_delay = RATE_LIMIT_RETRY_DELAY
 
-                    result = poller.result()
-                    markdown_contents.append(result.content)
+                    for attempt in range(max_retries):
+                        try:
+                            chunk_bytes.seek(0)
+                            poller = document_client.begin_analyze_document(
+                                "prebuilt-layout",
+                                body=chunk_bytes.getvalue(),
+                                content_type="application/pdf",
+                                output_content_format=DocumentContentFormat.MARKDOWN
+                            )
+
+                            result = poller.result()
+                            markdown_contents.append(result.content)
+                            break  # Exit loop if successful
+
+                        except Exception as e:
+                            error_message = str(e).lower()
+                            if "timeout" in error_message or "eof" in error_message:
+                                wait_time = base_delay * (2 ** attempt)
+                                print(f"Error occurred: {error_message}. Retrying in {wait_time} seconds... (Attempt {attempt + 1}/{max_retries})")
+                                time.sleep(wait_time)
+                            else:
+                                print(f"An unexpected error occurred: {error_message}")
+                                raise
 
                     # Reset for the next chunk
                     pdf_writer = PdfWriter()
