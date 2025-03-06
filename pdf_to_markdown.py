@@ -677,6 +677,8 @@ Note: The information appears to be typed. There is no signature field or placeh
                 stream=False
             ))
 
+            print(f"Processing page {page_num + 1} successfully completed!")
+
             return page_num, completion.choices[0].message.content
 
         except Exception as e:
