@@ -37,33 +37,49 @@ def run_kickoff(pdf_content: bytes, job_id: str, hook_url: str):
             output_gpt = future_gpt.result()
             output_document = future_document.result()
 
-        # Store the results in the shared store
-        # store[job_id] = ResponseData(status=Status.FINISHED, output_gpt=output_gpt, output_document=output_document)
 
-        # call hook_url with parsing result
-        requests.post(hook_url, json={
-            "status": Status.FINISHED,
-            "output_gpt": output_gpt,
-            "output_document": output_document
-        })
+        if hook_url == "":
+            # Store the results in the shared store
+            store[job_id] = ResponseData(status=Status.FINISHED, output_gpt=output_gpt, output_document=output_document)
+        else:
+            # call hook_url with parsing result
+            requests.post(hook_url, json={
+                "status": Status.FINISHED,
+                "output_gpt": output_gpt,
+                "output_document": output_document
+            })
 
-        # Free the variables
-        del output_gpt
-        del output_document
+            # Free the variables
+            del output_gpt
+            del output_document
     except Exception as e:
-        # store[job_id] = ResponseData(status=Status.FAILED, error=str(e))
-
-        # call hook_url with parsing result
-        requests.post(hook_url, json={
-            "status": Status.FAILED,
-            "error": str(e)
-        })
+        if hook_url == "":
+            store[job_id] = ResponseData(status=Status.FAILED, error=str(e))
+        else:
+            # call hook_url with parsing result
+            requests.post(hook_url, json={
+                "status": Status.FAILED,
+                "error": str(e)
+            })
 
 @app.get("/")
 async def root():
     return {"message": "Hello World"}
 
 @app.post("/kickoff")
+async def convert_pdf_to_markdown(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+    try:
+        job_id = str(uuid.uuid4())
+        pdf_content = await file.read()
+
+        background_tasks.add_task(run_kickoff, pdf_content, job_id, "")
+        store[job_id] = ResponseData(status=Status.RUNNING)
+        
+        return {"job_id": job_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/kickoff_hook")
 async def convert_pdf_to_markdown(background_tasks: BackgroundTasks, hook_url: str= Form(...), file: UploadFile = File(...)):
     try:
         job_id = str(uuid.uuid4())
