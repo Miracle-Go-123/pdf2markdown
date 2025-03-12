@@ -879,7 +879,7 @@ class ConverterByDocumentIntelligence:
             # Combine all markdown content
             combined_markdown = "\n\n---\n\n".join(markdown_contents)
 
-            if FORMAT_MARKDOWN_FROM_DI:
+            if FORMAT_RAW_MARKDOWN_FROM_DI:
                 print("Formatting markdown started with OpenAI...")
                 # Format the markdown with OpenAI
                 formatted_markdown = self.format_with_openai(combined_markdown)
@@ -892,7 +892,7 @@ class ConverterByDocumentIntelligence:
                 with open(f"markdown_di_raw.md", "w", encoding="utf-8") as f:
                     f.write(combined_markdown)
 
-                if FORMAT_MARKDOWN_FROM_DI:
+                if FORMAT_RAW_MARKDOWN_FROM_DI:
                     with open(f"markdown_di_formatted.md", "w", encoding="utf-8") as f:
                         f.write(formatted_markdown)
 
