@@ -38,7 +38,9 @@ def run_kickoff(pdf_content: bytes, job_id: str, hook_url: str):
             output_document = future_document.result()
 
 
-        if hook_url == "":
+        if job_id == "":
+            return ResponseData(status=Status.FINISHED, output_gpt=output_gpt, output_document=output_document)
+        elif hook_url == "":
             # Store the results in the shared store
             store[job_id] = ResponseData(status=Status.FINISHED, output_gpt=output_gpt, output_document=output_document)
         else:
@@ -53,7 +55,9 @@ def run_kickoff(pdf_content: bytes, job_id: str, hook_url: str):
             del output_gpt
             del output_document
     except Exception as e:
-        if hook_url == "":
+        if job_id == "":
+            return ResponseData(status=Status.FAILED, error=str(e))
+        elif hook_url == "":
             store[job_id] = ResponseData(status=Status.FAILED, error=str(e))
         else:
             # call hook_url with parsing result
@@ -67,15 +71,10 @@ async def root():
     return {"message": "Hello World"}
 
 @app.post("/kickoff")
-async def convert_pdf_to_markdown(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def convert_pdf_to_markdown(file: UploadFile = File(...)):
     try:
-        job_id = str(uuid.uuid4())
         pdf_content = await file.read()
-
-        background_tasks.add_task(run_kickoff, pdf_content, job_id, "")
-        store[job_id] = ResponseData(status=Status.RUNNING)
-        
-        return {"job_id": job_id}
+        return run_kickoff(pdf_content, "", "")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
